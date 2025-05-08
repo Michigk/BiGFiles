@@ -1,0 +1,158 @@
+import os
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+# Farben 
+BG_COLOR = '#2E2E2E'
+FG_COLOR = '#FFFFFF'
+ACCENT_COLOR = '#3A3F44'
+BUTTON_BG = '#4A90E2'
+BUTTON_FG = '#FFFFFF'
+
+class BiGFilesApp(tk.Tk):
+    def __init__(self):
+        # Hauptfenster initialisieren
+        super().__init__()
+
+        # Fenster-Icon laden
+        try:
+            icon_img = tk.PhotoImage(file='logo_white.png')
+            self.iconphoto(False, icon_img)
+        except Exception:
+            pass
+
+        # GUI-Einstellungen
+        self.title("BiGFiles")
+        self.geometry("900x600")
+        self.configure(bg=BG_COLOR)
+        self.directory = None
+        self.file_list = []
+
+        # Styles
+        style = ttk.Style(self)
+        style.theme_use('clam')
+        style.configure('TFrame', background=BG_COLOR)
+        style.configure('TLabel', background=BG_COLOR, foreground=FG_COLOR, font=('Segoe UI', 12))
+        style.configure('Header.TLabel', font=('Segoe UI', 20, 'bold'))
+        style.configure('TButton', font=('Segoe UI', 11), background=BUTTON_BG, foreground=BUTTON_FG)
+        style.map('TButton', background=[('active', ACCENT_COLOR)])
+        style.configure('Treeview', background=ACCENT_COLOR, fieldbackground=ACCENT_COLOR, foreground=FG_COLOR, font=('Segoe UI', 10))
+        style.configure('Treeview.Heading', background=ACCENT_COLOR, foreground=FG_COLOR, font=('Segoe UI', 11, 'bold'))
+
+        # Header-Label
+        header = ttk.Label(self, text="BiGFiles", style='Header.TLabel')
+        header.pack(pady=(20, 10))
+
+        # Steuerungs-Frame
+        control_frame = ttk.Frame(self)
+        control_frame.pack(fill=tk.X, padx=40, pady=10)
+        
+        self.dir_button = ttk.Button(control_frame, text="Ordner wählen…", command=self.choose_directory)
+        self.dir_button.grid(row=0, column=0, padx=5)
+
+        ttk.Label(control_frame, text="Min. Größe (MB):").grid(row=0, column=1, padx=5)
+        self.size_entry = ttk.Entry(control_frame, width=8)
+        self.size_entry.insert(0, "100")
+        self.size_entry.grid(row=0, column=2, padx=5)
+
+        self.scan_button = ttk.Button(control_frame, text="Suchen", command=self.scan_files)
+        self.scan_button.grid(row=0, column=3, padx=5)
+
+        self.progress = ttk.Progressbar(control_frame, mode='indeterminate')
+        self.progress.grid(row=0, column=4, sticky='ew', padx=5)
+        control_frame.columnconfigure(4, weight=1)
+
+        # Ergebnis-Tabelle
+        list_frame = ttk.Frame(self)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=(0,20))
+
+        columns = ("size_mb", "path")
+        self.tree = ttk.Treeview(list_frame, columns=columns, show='headings', selectmode='browse')
+        self.tree.heading('size_mb', text='Größe (MB)')
+        self.tree.heading('path', text='Pfad')
+        self.tree.column('size_mb', width=120, anchor=tk.CENTER)
+        self.tree.column('path', anchor=tk.W)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        # Ordner-öffnen-Button
+        self.open_button = ttk.Button(self, text="Ordner öffnen", command=self.open_selected)
+        self.open_button.pack(pady=(0,20))
+
+    def choose_directory(self):
+        sel = filedialog.askdirectory()
+        if sel:
+            self.directory = sel
+
+    def scan_files(self):
+        if not self.directory:
+            messagebox.showwarning("Fehler", "Bitte zuerst einen Ordner wählen.")
+            return
+        try:
+            threshold_mb = float(self.size_entry.get())
+        except ValueError:
+            messagebox.showwarning("Fehler", "Bitte eine gültige Zahl eingeben.")
+            return
+        threshold_bytes = threshold_mb * 1024 * 1024
+
+        for w in (self.scan_button, self.dir_button, self.open_button):
+            w.state(['disabled'])
+        self.progress.start()
+
+        threading.Thread(target=self._scan_thread, args=(threshold_bytes,), daemon=True).start()
+
+    def _scan_thread(self, threshold_bytes):
+        self.file_list.clear()
+        self._scan_dir(self.directory, threshold_bytes)
+        self.file_list.sort(key=lambda x: x[1], reverse=True)
+        self.after(0, self._finish_scan)
+
+    def _scan_dir(self, path, threshold):
+        try:
+            with os.scandir(path) as it:
+                for entry in it:
+                    if entry.is_file(follow_symlinks=False):
+                        try:
+                            size = entry.stat().st_size
+                        except OSError:
+                            continue
+                        if size >= threshold:
+                            self.file_list.append((entry.path, size))
+                    elif entry.is_dir(follow_symlinks=False):
+                        self._scan_dir(entry.path, threshold)
+        except (PermissionError, OSError):
+            pass
+
+    def _finish_scan(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        for path, size in self.file_list:
+            mb = size / (1024*1024)
+            self.tree.insert('', tk.END, values=(f"{mb:.2f}", path))
+
+        self.progress.stop()
+        for w in (self.scan_button, self.dir_button, self.open_button):
+            w.state(['!disabled'])
+
+    def open_selected(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Info", "Bitte eine Datei auswählen.")
+            return
+        path = self.tree.item(sel[0], 'values')[1]
+        folder = os.path.dirname(path)
+        try:
+            os.startfile(folder)
+        except AttributeError:
+            if os.name == 'posix':
+                os.system(f"xdg-open '{folder}'")
+            else:
+                messagebox.showerror("Fehler", "Kann den Ordner nicht öffnen.")
+
+if __name__ == '__main__':
+    app = BiGFilesApp()
+    app.mainloop()
