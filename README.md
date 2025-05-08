@@ -24,3 +24,9 @@ you got a button which leads you directly to the folder of the selected file, yo
 why did i create this program?
 - i noticed i got a lot of files on my PC but windows wouldn´t show them all on the "installed apps" page.
 - i wanted to scan single folders instead of the whole harddrive since some files are not recognized by Windows, such as additional files for Games stored in different locations.
+
+
+DON´T WORRY IF ANTIVIRUS IS ACTING UP! THE PROGRAMM SEARCHES FOR FILES ON YOUR PC!
+
+Disclaimer: 
+       -The files won´t be accessed from third party, the skript works in offline mode too.
